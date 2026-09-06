@@ -34,6 +34,22 @@ def test_expiring_cache_clear_forces_immediate_reload():
     assert cache() == [2]
 
 
+def test_expiring_cache_ttl_starts_after_loader_finishes():
+    now = [0.0]
+    calls: list[int] = []
+
+    def slow_load() -> list[int]:
+        calls.append(len(calls) + 1)
+        now[0] += 20.0
+        return [calls[-1]]
+
+    cache = ExpiringCache(slow_load, ttl_seconds=15, clock=lambda: now[0])
+
+    assert cache() == [1]
+    assert cache() == [1]
+    assert calls == [1]
+
+
 class TestHasValidFiles:
     def test_finds_valid_extension(self, tmp_path):
         (tmp_path / "test.mp4").write_bytes(b"\x00")
@@ -58,6 +74,22 @@ class TestHasValidFiles:
 
 
 class TestGetDirs:
+    def test_walks_tree_once_when_filtering_extensions(self, tmp_path, monkeypatch):
+        season = tmp_path / "show" / "season01"
+        season.mkdir(parents=True)
+        (season / "ep.mkv").write_bytes(b"\x00")
+        real_walk = os.walk
+        walked_roots: list[str] = []
+
+        def recording_walk(path):
+            walked_roots.append(os.fspath(path))
+            return real_walk(path)
+
+        monkeypatch.setattr("app.get_dirs.os.walk", recording_walk)
+
+        assert get_dirs(str(tmp_path), {".mkv"}) == ["show", "show/season01"]
+        assert walked_roots == [str(tmp_path)]
+
     def test_none_extensions_include_empty_and_non_media_directories(self, tmp_path):
         (tmp_path / "empty").mkdir()
         text_only = tmp_path / "text-only"

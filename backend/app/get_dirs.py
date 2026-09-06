@@ -35,11 +35,10 @@ class ExpiringCache(Generic[T]):
         self._expires_at = 0.0
 
     def __call__(self) -> T:
-        now = self._clock()
         with self._lock:
-            if self._value is None or now >= self._expires_at:
+            if self._value is None or self._clock() >= self._expires_at:
                 self._value = self._loader()
-                self._expires_at = now + self._ttl_seconds
+                self._expires_at = self._clock() + self._ttl_seconds
             return self._value
 
     def cache_clear(self) -> None:
@@ -61,17 +60,32 @@ def get_dirs(base: str, extensions: set[str] | None) -> list[str]:
     """Return relative directories; filter by file extension unless extensions is None."""
     if not os.path.isdir(base):
         return []
-    directories: list[str] = []
-    for root, dirs, _ in os.walk(base):
-        dirs[:] = [
-            d for d in dirs if not d.endswith(".trickplay") and ".trickplay" not in root
-        ]
-        for directory in dirs:
-            full_path = os.path.join(root, directory)
-            if extensions is None or has_valid_files(full_path, extensions):
-                rel_path = os.path.relpath(full_path, base)
-                directories.append(rel_path.replace("\\", "/"))
-    return sorted(directories)
+
+    base = os.path.normpath(base)
+    matching_directories: set[str] = set()
+    valid_suffixes = tuple(extension.lower() for extension in extensions or ())
+
+    for root, dirs, files in os.walk(base):
+        dirs[:] = [directory for directory in dirs if not directory.endswith(".trickplay")]
+
+        if extensions is None:
+            matching_directories.update(os.path.join(root, directory) for directory in dirs)
+            continue
+
+        if not any(filename.lower().endswith(valid_suffixes) for filename in files):
+            continue
+
+        current = root
+        while current != base and current not in matching_directories:
+            matching_directories.add(current)
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+
+    return sorted(
+        os.path.relpath(path, base).replace("\\", "/") for path in matching_directories
+    )
 
 
 def _label_for(base_path: str) -> str:
