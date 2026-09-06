@@ -1,7 +1,53 @@
 """Tests for directory scanning logic."""
 import os
 import pytest
-from app.get_dirs import get_dirs, has_valid_files
+from app.get_dirs import ExpiringCache, get_dirs, has_valid_files
+
+
+def test_expiring_cache_reuses_value_until_ttl_then_reloads():
+    now = [0.0]
+    calls: list[int] = []
+
+    def load() -> list[int]:
+        calls.append(len(calls) + 1)
+        return [calls[-1]]
+
+    cache = ExpiringCache(load, ttl_seconds=15, clock=lambda: now[0])
+
+    assert cache() == [1]
+    assert cache() == [1]
+    now[0] = 15.0
+    assert cache() == [2]
+    assert calls == [1, 2]
+
+
+def test_expiring_cache_clear_forces_immediate_reload():
+    calls: list[int] = []
+    cache = ExpiringCache(
+        lambda: calls.append(len(calls) + 1) or [calls[-1]],
+        ttl_seconds=15,
+        clock=lambda: 0.0,
+    )
+
+    assert cache() == [1]
+    cache.cache_clear()
+    assert cache() == [2]
+
+
+def test_expiring_cache_ttl_starts_after_loader_finishes():
+    now = [0.0]
+    calls: list[int] = []
+
+    def slow_load() -> list[int]:
+        calls.append(len(calls) + 1)
+        now[0] += 20.0
+        return [calls[-1]]
+
+    cache = ExpiringCache(slow_load, ttl_seconds=15, clock=lambda: now[0])
+
+    assert cache() == [1]
+    assert cache() == [1]
+    assert calls == [1]
 
 
 class TestHasValidFiles:
@@ -28,6 +74,30 @@ class TestHasValidFiles:
 
 
 class TestGetDirs:
+    def test_walks_tree_once_when_filtering_extensions(self, tmp_path, monkeypatch):
+        season = tmp_path / "show" / "season01"
+        season.mkdir(parents=True)
+        (season / "ep.mkv").write_bytes(b"\x00")
+        real_walk = os.walk
+        walked_roots: list[str] = []
+
+        def recording_walk(path):
+            walked_roots.append(os.fspath(path))
+            return real_walk(path)
+
+        monkeypatch.setattr("app.get_dirs.os.walk", recording_walk)
+
+        assert get_dirs(str(tmp_path), {".mkv"}) == ["show", "show/season01"]
+        assert walked_roots == [str(tmp_path)]
+
+    def test_none_extensions_include_empty_and_non_media_directories(self, tmp_path):
+        (tmp_path / "empty").mkdir()
+        text_only = tmp_path / "text-only"
+        text_only.mkdir()
+        (text_only / "notes.txt").write_text("notes")
+
+        assert get_dirs(str(tmp_path), None) == ["empty", "text-only"]
+
     def test_finds_directories_with_valid_files(self, tmp_path):
         sub = tmp_path / "show" / "season01"
         sub.mkdir(parents=True)

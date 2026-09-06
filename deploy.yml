@@ -9,6 +9,7 @@ services:
       - TRANSCRIBER_URL=http://lyric-transcriber:3334 #URL for the lyric transcriber service, required for lyrics feature
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+      - UMASK=${UMASK:-022}
       #- AUTH_USERNAME=admin #set to enable authentication
       #- AUTH_PASSWORD=changeme #set to enable authentication
       #- BASE_PATHS=/media1,/media2  # comma-separated media roots, defaults to /media

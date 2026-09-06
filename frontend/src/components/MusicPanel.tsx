@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchJson, postForm, postRefresh } from '@/lib/api'
 import { useDebounce } from '@/hooks/useDebounce'
+import { useDirectoryAutoRefresh } from '@/hooks/useDirectoryAutoRefresh'
 import type { DirectoriesResponse, DirectoryEntry, MusicForm, RenameResponse } from '@/types'
 import PanelLayout from '@/components/PanelLayout'
 import LogPanel from '@/components/LogPanel'
@@ -40,12 +41,14 @@ export default function MusicPanel({
   const [isLoadingDirs, setIsLoadingDirs] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const directoryRequest = useRef(0)
 
   const debouncedArtist = useDebounce(form.artist, 500)
   const debouncedAlbum = useDebounce(form.album, 500)
 
   const fetchDirs = useCallback(
-    async (artist: string, album: string) => {
+    async (artist: string, album: string, preserveSelection = false) => {
+      const requestId = ++directoryRequest.current
       setIsLoadingDirs(true)
       onError('')
       try {
@@ -54,23 +57,30 @@ export default function MusicPanel({
         if (album) params.album = album
         const data = await fetchJson<DirectoriesResponse>('/directories/music', params)
         const dirs = data.directories ?? []
+        if (requestId !== directoryRequest.current) return
         setDirectories(dirs)
-        setForm((prev) => {
-          const stillPresent = dirs.some((d) => d.path === prev.directory && d.base === prev.base)
-          return {
-            ...prev,
-            directory: dirs.length > 0 ? (stillPresent ? prev.directory : dirs[0]!.path) : '',
-            base: dirs.length > 0 ? (stillPresent ? prev.base : dirs[0]!.base) : '',
-          }
-        })
+        if (!preserveSelection) {
+          setForm((prev) => {
+            const stillPresent = dirs.some((d) => d.path === prev.directory && d.base === prev.base)
+            return {
+              ...prev,
+              directory: dirs.length > 0 ? (stillPresent ? prev.directory : dirs[0]!.path) : '',
+              base: dirs.length > 0 ? (stillPresent ? prev.base : dirs[0]!.base) : '',
+            }
+          })
+        }
       } catch (err) {
-        onError(`Error loading directories: ${err instanceof Error ? err.message : String(err)}`)
+        if (requestId === directoryRequest.current) {
+          onError(`Error loading directories: ${err instanceof Error ? err.message : String(err)}`)
+        }
       } finally {
-        setIsLoadingDirs(false)
+        if (requestId === directoryRequest.current) setIsLoadingDirs(false)
       }
     },
     [onError],
   )
+
+  useDirectoryAutoRefresh(() => fetchDirs(debouncedArtist, debouncedAlbum, true))
 
   useEffect(() => {
     void fetchDirs(debouncedArtist, debouncedAlbum)

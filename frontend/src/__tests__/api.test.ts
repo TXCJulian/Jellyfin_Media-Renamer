@@ -8,8 +8,14 @@ vi.mock('@/lib/sse', () => ({
   connectSSE: mockConnectSSE,
 }))
 
-const { fetchJson, fetchMediaDirectories, fetchPreviewStatus, postCookies, postForm, postRefresh } =
-  await import('@/lib/api')
+const {
+  fetchJson,
+  fetchDownloadDirectories,
+  fetchPreviewStatus,
+  postCookies,
+  postForm,
+  postRefresh,
+} = await import('@/lib/api')
 
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -88,16 +94,17 @@ describe('directory APIs', () => {
     await expect(postRefresh()).rejects.toThrow()
   })
 
-  it('fetches media directories from the shared media endpoint', async () => {
+  it('fetches unfiltered downloader destinations from the download endpoint', async () => {
     mockFetch.mockResolvedValueOnce(
-      jsonResponse({ directories: [{ path: 'Movies', base: 'media' }] }),
+      jsonResponse({ directories: [{ path: 'Empty', base: 'media' }] }),
     )
 
-    const result = await fetchMediaDirectories()
+    const result = await fetchDownloadDirectories('emp')
 
-    expect(result.directories).toEqual([{ path: 'Movies', base: 'media' }])
-    const calledUrl = mockFetch.mock.calls[0]![0] as URL
-    expect(calledUrl.toString()).toContain('/directories/media')
+    expect(result.directories).toEqual([{ path: 'Empty', base: 'media' }])
+    const calledUrl = new URL(mockFetch.mock.calls[0]![0] as string)
+    expect(calledUrl.pathname).toContain('/directories/download')
+    expect(calledUrl.searchParams.get('search')).toBe('emp')
   })
 })
 

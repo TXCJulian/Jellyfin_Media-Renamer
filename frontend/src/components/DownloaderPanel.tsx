@@ -4,6 +4,7 @@ import DownloadJobCard from './downloader/DownloadJobCard'
 import DownloadOptions from './downloader/DownloadOptions'
 import FormSection from './ui/FormSection'
 import { useDebounce } from '@/hooks/useDebounce'
+import { useDirectoryAutoRefresh } from '@/hooks/useDirectoryAutoRefresh'
 import { useDownloadStream } from '@/hooks/useDownloadStream'
 import {
   cancelDownloadJob,
@@ -11,8 +12,9 @@ import {
   deleteCookies,
   deleteDownloadJob,
   fetchDownloaderStatus,
-  fetchMediaDirectories,
+  fetchDownloadDirectories,
   postCookies,
+  postRefresh,
   startDownloadJob,
 } from '@/lib/api'
 import type { DirectoryEntry, DownloadForm, DownloaderStatus } from '@/types'
@@ -95,6 +97,7 @@ export default function DownloaderPanel({
   const [form, setForm] = useState<DownloadForm>(() => ({ url: '', ...loadSettings() }))
   const [search, setSearch] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
+  const directoryRequest = useRef(0)
 
   const urls = useMemo(() => parseUrls(form.url), [form.url])
   const debouncedSearch = useDebounce(search, 500)
@@ -137,26 +140,36 @@ export default function DownloaderPanel({
    * once the search is cleared, the current selection — including "none" —
    * is left alone.
    */
-  const refreshDirectories = useCallback(async (searchText?: string) => {
-    setIsRefreshingDirs(true)
-    try {
-      const dirs = (await fetchMediaDirectories(searchText)).directories
-      setDirectories(dirs)
-      if (searchText) {
-        setForm((prev) => {
-          const stillPresent = dirs.some((d) => d.path === prev.output_dir && d.base === prev.base)
-          if (stillPresent) return prev
-          return {
-            ...prev,
-            output_dir: dirs.length > 0 ? dirs[0]!.path : '',
-            base: dirs.length > 0 ? dirs[0]!.base : '',
-          }
-        })
+  const refreshDirectories = useCallback(
+    async (searchText?: string, clearCache = false, preserveSelection = false) => {
+      const requestId = ++directoryRequest.current
+      setIsRefreshingDirs(true)
+      try {
+        if (clearCache) await postRefresh()
+        const dirs = (await fetchDownloadDirectories(searchText)).directories
+        if (requestId !== directoryRequest.current) return
+        setDirectories(dirs)
+        if (searchText && !preserveSelection) {
+          setForm((prev) => {
+            const stillPresent = dirs.some(
+              (d) => d.path === prev.output_dir && d.base === prev.base,
+            )
+            if (stillPresent) return prev
+            return {
+              ...prev,
+              output_dir: dirs.length > 0 ? dirs[0]!.path : '',
+              base: dirs.length > 0 ? dirs[0]!.base : '',
+            }
+          })
+        }
+      } finally {
+        if (requestId === directoryRequest.current) setIsRefreshingDirs(false)
       }
-    } finally {
-      setIsRefreshingDirs(false)
-    }
-  }, [])
+    },
+    [],
+  )
+
+  useDirectoryAutoRefresh(() => refreshDirectories(debouncedSearch, false, true))
 
   useEffect(() => {
     void refreshStatus().catch(() => {})
@@ -245,7 +258,11 @@ export default function DownloaderPanel({
           form={form}
           onChange={patchForm}
           directories={directories}
-          onRefreshDirectories={() => void refreshDirectories(search)}
+          onRefreshDirectories={() =>
+            void refreshDirectories(search, true).catch((err) =>
+              onError(err instanceof Error ? err.message : 'Failed to refresh directories'),
+            )
+          }
           isRefreshingDirectories={isRefreshingDirs}
           showBaseLabel={showBaseLabel}
           search={search}

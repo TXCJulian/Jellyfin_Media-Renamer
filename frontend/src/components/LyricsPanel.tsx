@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchJson, fetchTranscriberHealth, fetchMusicFiles, postRefresh } from '@/lib/api'
 import { connectSSE } from '@/lib/sse'
 import { useDebounce } from '@/hooks/useDebounce'
+import { useDirectoryAutoRefresh } from '@/hooks/useDirectoryAutoRefresh'
+import { unfitModels, bestFittingModel } from '@/lib/modelFit'
 import type {
   DirectoriesResponse,
   DirectoryEntry,
@@ -78,6 +80,7 @@ export default function LyricsPanel({
   const [musicFiles, setMusicFiles] = useState<MusicFileInfo[]>([])
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
+  const directoryRequest = useRef(0)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const abortSSERef = useRef<(() => void) | null>(null)
 
@@ -99,8 +102,20 @@ export default function LyricsPanel({
     checkHealth()
   }, [checkHealth])
 
+  // Auto-downgrade the selected Whisper model if it no longer fits in the
+  // available VRAM (fresh health check, or a different GPU than before) --
+  // there's no other field to fix this, so there's nothing to dim-and-leave
+  // clickable like the codec/container pairs elsewhere in the app.
+  useEffect(() => {
+    const fixed = bestFittingModel(form.whisper_model, WHISPER_MODELS, health?.whisper_model_fit)
+    if (fixed !== form.whisper_model) {
+      setForm((prev) => ({ ...prev, whisper_model: fixed }))
+    }
+  }, [health, form.whisper_model])
+
   const fetchDirs = useCallback(
-    async (artist: string, album: string) => {
+    async (artist: string, album: string, preserveSelection = false) => {
+      const requestId = ++directoryRequest.current
       setIsLoadingDirs(true)
       onError('')
       try {
@@ -109,23 +124,30 @@ export default function LyricsPanel({
         if (album) params.album = album
         const data = await fetchJson<DirectoriesResponse>('/directories/music', params)
         const dirs = data.directories ?? []
+        if (requestId !== directoryRequest.current) return
         setDirectories(dirs)
-        setForm((prev) => {
-          const stillPresent = dirs.some((d) => d.path === prev.directory && d.base === prev.base)
-          return {
-            ...prev,
-            directory: dirs.length > 0 ? (stillPresent ? prev.directory : dirs[0]!.path) : '',
-            base: dirs.length > 0 ? (stillPresent ? prev.base : dirs[0]!.base) : '',
-          }
-        })
+        if (!preserveSelection) {
+          setForm((prev) => {
+            const stillPresent = dirs.some((d) => d.path === prev.directory && d.base === prev.base)
+            return {
+              ...prev,
+              directory: dirs.length > 0 ? (stillPresent ? prev.directory : dirs[0]!.path) : '',
+              base: dirs.length > 0 ? (stillPresent ? prev.base : dirs[0]!.base) : '',
+            }
+          })
+        }
       } catch (err) {
-        onError(`Error loading directories: ${err instanceof Error ? err.message : String(err)}`)
+        if (requestId === directoryRequest.current) {
+          onError(`Error loading directories: ${err instanceof Error ? err.message : String(err)}`)
+        }
       } finally {
-        setIsLoadingDirs(false)
+        if (requestId === directoryRequest.current) setIsLoadingDirs(false)
       }
     },
     [onError],
   )
+
+  useDirectoryAutoRefresh(() => fetchDirs(debouncedArtist, debouncedAlbum, true))
 
   useEffect(() => {
     void fetchDirs(debouncedArtist, debouncedAlbum)
@@ -274,6 +296,15 @@ export default function LyricsPanel({
   const update = <K extends keyof LyricsForm>(key: K, value: LyricsForm[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }))
 
+  const unfitWhisperModels = new Map(
+    [...unfitModels(health?.whisper_model_fit)].map((name) => [
+      name,
+      `Doesn't fit in the available VRAM${health?.vram_total_mb ? ` (${(health.vram_total_mb / 1024).toFixed(1)} GB)` : ''}.`,
+    ]),
+  )
+  const modelFit = health?.whisper_model_fit
+  const noFittingWhisperModel =
+    modelFit != null && WHISPER_MODELS.every((model) => modelFit[model.value] === false)
   const isServiceOk = health?.status === 'ok'
   const busy = isLoadingDirs || isTranscribing
 
@@ -472,6 +503,7 @@ export default function LyricsPanel({
                     value={form.whisper_model}
                     onChange={(v) => update('whisper_model', v)}
                     disabled={busy}
+                    unavailable={unfitWhisperModels}
                     color="rose"
                   />
                   <p className="mt-[0.35rem] text-[0.68rem] leading-snug text-[var(--text-tertiary)]">
@@ -489,8 +521,8 @@ export default function LyricsPanel({
                     color="rose"
                   />
                   <p className="mt-[0.35rem] text-[0.68rem] leading-snug text-[var(--text-tertiary)]">
-                    Fine-tuned gives the cleanest vocal isolation at similar VRAM cost, but runs
-                    slower. Low VRAM trades some quality for a lighter footprint.
+                    Htdemucs_ft can give cleaner vocal isolation at similar VRAM cost, but runs
+                    slower. Htdemucs is the best alround choice.
                   </p>
                 </div>
 
@@ -562,9 +594,15 @@ export default function LyricsPanel({
           </div>
         </FormSection>
 
+        {noFittingWhisperModel && (
+          <p className="mb-3 text-[0.75rem] text-[var(--error)]" role="alert">
+            No available Whisper model fits this GPU.
+          </p>
+        )}
+
         <button
           type="submit"
-          disabled={busy || !isServiceOk || selectedFiles.size === 0}
+          disabled={busy || !isServiceOk || selectedFiles.size === 0 || noFittingWhisperModel}
           className="btn-submit btn-rose"
         >
           {isTranscribing ? <span className="spinner-md" /> : 'Transcribe'}

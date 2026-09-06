@@ -28,6 +28,7 @@ services:
       #- VAAPI_DEVICE=/dev/dri/renderD128  # Uncomment to override VAAPI device path
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+      - UMASK=${UMASK:-022}
     # --- GPU passthrough (uncomment ONE section matching your hardware) ---
     # NVIDIA GPU:
     #deploy:

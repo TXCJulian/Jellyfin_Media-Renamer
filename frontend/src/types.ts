@@ -59,6 +59,8 @@ export interface TranscriberHealth {
   gpu_backend?: string
   gpu_name?: string | null
   transcription_engine?: string
+  vram_total_mb?: number | null
+  whisper_model_fit?: Record<string, boolean> | null
   error?: string
 }
 

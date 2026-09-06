@@ -27,6 +27,31 @@ class TestConfigEndpoint:
 
 
 class TestDirectoryEndpoints:
+    @pytest.mark.parametrize("event_method", ["on_created", "on_deleted", "on_moved"])
+    def test_directory_events_clear_every_cache(self, event_method, monkeypatch):
+        import app.main as main_mod
+
+        cleared: list[str] = []
+
+        class Cache:
+            def __init__(self, name: str) -> None:
+                self.name = name
+
+            def cache_clear(self) -> None:
+                cleared.append(self.name)
+
+        class DirectoryEvent:
+            is_directory = True
+
+        monkeypatch.setattr(main_mod, "_get_all_dirs_cached", Cache("tv"))
+        monkeypatch.setattr(main_mod, "_get_music_dirs_cached", Cache("music"))
+        monkeypatch.setattr(main_mod, "_get_cutter_dirs_cached", Cache("cutter"))
+        monkeypatch.setattr(main_mod, "_get_download_dirs_cached", Cache("download"))
+
+        getattr(main_mod.DirChangeHandler(), event_method)(DirectoryEvent())
+
+        assert cleared == ["tv", "music", "cutter", "download"]
+
     def test_list_tvshows_empty(self, client):
         resp = client.get("/directories/tvshows")
         assert resp.status_code == 200
@@ -41,6 +66,28 @@ class TestDirectoryEndpoints:
         resp = client.post("/directories/refresh")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
+
+    def test_refresh_directories_clears_every_cache(self, client, monkeypatch):
+        import app.main as main_mod
+
+        cleared: list[str] = []
+
+        class Cache:
+            def __init__(self, name: str) -> None:
+                self.name = name
+
+            def cache_clear(self) -> None:
+                cleared.append(self.name)
+
+        monkeypatch.setattr(main_mod, "_get_all_dirs_cached", Cache("tv"))
+        monkeypatch.setattr(main_mod, "_get_music_dirs_cached", Cache("music"))
+        monkeypatch.setattr(main_mod, "_get_cutter_dirs_cached", Cache("cutter"))
+        monkeypatch.setattr(main_mod, "_get_download_dirs_cached", Cache("download"))
+
+        response = client.post("/directories/refresh")
+
+        assert response.status_code == 200
+        assert cleared == ["tv", "music", "cutter", "download"]
 
     def test_series_filter(self, client, tmp_media_dir):
         show_dir = tmp_media_dir / "TV Shows" / "Breaking Bad" / "Season 01"
@@ -82,20 +129,69 @@ class TestDirectoryEndpoints:
         assert "path" in dirs[0]
         assert "base" in dirs[0]
 
-    def test_media_directories_available_for_download_feature(self, client, monkeypatch):
+    def test_download_directories_available_for_download_feature(self, client, monkeypatch):
         import app.main as main_mod
 
         monkeypatch.setattr(main_mod, "ENABLED_FEATURES_SET", {"download"})
         monkeypatch.setattr(
             main_mod,
-            "_get_cutter_dirs_cached",
-            lambda: [{"path": "Downloads", "base": "media"}],
+            "_get_download_dirs_cached",
+            lambda: [
+                {"path": "Empty", "base": "media"},
+                {"path": "Documents", "base": "media"},
+            ],
         )
 
-        resp = client.get("/directories/media")
+        response = client.get("/directories/download")
 
-        assert resp.status_code == 200
-        assert resp.json()["directories"] == [{"path": "Downloads", "base": "media"}]
+        assert response.status_code == 200
+        assert response.json()["directories"] == [
+            {"path": "Empty", "base": "media"},
+            {"path": "Documents", "base": "media"},
+        ]
+
+    def test_download_directory_search_filters_paths(self, client, monkeypatch):
+        import app.main as main_mod
+
+        monkeypatch.setattr(main_mod, "ENABLED_FEATURES_SET", {"download"})
+        monkeypatch.setattr(
+            main_mod,
+            "_get_download_dirs_cached",
+            lambda: [
+                {"path": "Movies", "base": "media"},
+                {"path": "Music", "base": "media"},
+            ],
+        )
+
+        response = client.get("/directories/download", params={"search": "music"})
+
+        assert response.status_code == 200
+        assert response.json()["directories"] == [{"path": "Music", "base": "media"}]
+
+    def test_cutter_directory_endpoint_is_not_enabled_by_download_alone(self, client, monkeypatch):
+        import app.main as main_mod
+
+        monkeypatch.setattr(main_mod, "ENABLED_FEATURES_SET", {"download"})
+
+        assert client.get("/directories/media").status_code == 404
+
+    def test_cutter_directory_endpoint_uses_cutter_cache_and_filters(self, client, monkeypatch):
+        import app.main as main_mod
+
+        monkeypatch.setattr(main_mod, "ENABLED_FEATURES_SET", {"cutter"})
+        monkeypatch.setattr(
+            main_mod,
+            "_get_cutter_dirs_cached",
+            lambda: [
+                {"path": "Movies", "base": "media"},
+                {"path": "Music", "base": "media"},
+            ],
+        )
+
+        response = client.get("/directories/media", params={"search": "movie"})
+
+        assert response.status_code == 200
+        assert response.json()["directories"] == [{"path": "Movies", "base": "media"}]
 
 
 class TestInputValidation:

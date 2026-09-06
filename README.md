@@ -149,6 +149,7 @@ More companion services following this pattern may be added as GPU-heavy feature
 - Retains the original file for a configurable TTL after a successful encode before purging it (`ENCODER_ORIGINAL_TTL`)
 - Live job cards via SSE with per-job approve, re-evaluate, cancel, and delete actions; a collapsible history section for completed/failed/cancelled/skipped jobs
 - Watch-folder list is persisted in the encoder's own database and survives container restarts and environment-variable changes
+- The Auto Encoder directory picker performs a fresh directory walk on each request and is not subject to the 15-second directory picker cache
 - GPU health indicator showing connected encoder vendor (NVENC/QSV/VCE/CPU)
 - **Requires the separate [HandBrake_Video-Encoder](https://github.com/TXCJulian/HandBrake_Video-Encoder) service, reachable at `ENCODER_URL`**
 
@@ -191,7 +192,7 @@ More companion services following this pattern may be added as GPU-heavy feature
 - Multi-stage Docker builds
 - Nginx reverse proxy
 - Bridge network for service communication
-- Optional: NVIDIA or Intel Arc GPU service for lyrics transcription (AMD ROCm builds too but is untested; CPU fallback also available)
+- Optional: NVIDIA or Intel Arc GPU service for lyrics transcription (AMD ROCm builds too but is untested; older NVIDIA Maxwell/Pascal/Volta cards are supported via the transcriber's `nvidia-legacy` backend; CPU fallback also available)
 - Cutter backend container uses Jellyfin FFmpeg build on amd64 for broader HW encoder availability
 
 ### Request Flow
@@ -240,7 +241,7 @@ Browser                    Frontend Container               Backend Container
 - **Media directory** with read/write permissions
 - **Node** 22.22.2+, 24.15+, or 26+ (only for local frontend development; the Docker build is unaffected)
 - **Optional**: Hardware-acceleration compatible APU/GPU (for ffmpeg in cutter section)
-- **Optional**: NVIDIA GPU + CUDA drivers, or Intel Arc GPU + oneAPI/Level Zero drivers (for lyrics transcription; see [Whisper_Lyric-Transcriber](https://github.com/TXCJulian/Whisper_Lyric-Transcriber)'s README for per-GPU requirements)
+- **Optional**: NVIDIA GPU + CUDA drivers (including older Maxwell/Pascal/Volta cards via the `nvidia-legacy` backend), or Intel Arc GPU + oneAPI/Level Zero drivers (for lyrics transcription; see [Whisper_Lyric-Transcriber](https://github.com/TXCJulian/Whisper_Lyric-Transcriber)'s README for per-GPU requirements)
 
 ## Installation
 
@@ -327,6 +328,7 @@ docker compose --profile gpu up --build #Clone transcriber repo first
 | `SECRET_KEY` | Session signing key (optional - auto-generated and persisted if unset) | auto-generated |
 | `PUID` | User ID the container process runs as | `1000` |
 | `PGID` | Group ID the container process runs as | `1000` |
+| `UMASK` | File/directory creation mask applied before the backend starts | `022` |
 
 The `encoder` feature requires the separate `HandBrake_Video-Encoder` service to be deployed and reachable at `ENCODER_URL`. Both this renamer and the encoder service must mount the media library at identical in-container paths, since the renamer sends the encoder in-container source paths and never transfers file contents itself.
 
@@ -394,6 +396,10 @@ The application expects the following structure in your media directory:
 ```
 
 > **Note:** The Episode Renamer and Music Renamer only scan their respective subdirectories (`TV Shows/`, `Music/`). The Media Cutter scans the entire `BASE_PATHS` so it can access files in any subdirectory (Movies, TV Shows, Music, etc.).
+>
+> Directory results are cached for at most 15 seconds. Local directory create, delete, and move events clear the cache immediately. File-only changes and remote NFS changes that do not emit local watchdog events may remain cached until the TTL expires. The active panel reloads its list every 30 seconds, and its refresh button clears all directory caches immediately.
+>
+> The Downloader uses `/directories/download` and lists every non-`.trickplay` directory under `BASE_PATHS`, including empty directories and directories without recognized media files. Cutter discovery remains restricted to `VALID_CUTTER_EXT`.
 
 ## API Endpoints
 
@@ -403,13 +409,15 @@ The application expects the following structure in your media directory:
 | ------ | -------- | ----------- |
 | `GET` | `/config` | Returns enabled features |
 | `GET` | `/health` | Backend health check |
+| `GET` | `/directories/media` | List cutter directories containing files in `VALID_CUTTER_EXT` (query: `search`) |
+| `GET` | `/directories/download` | List all downloader destination directories, without extension filtering (query: `search`) |
+| `POST` | `/directories/refresh` | Immediately clear every directory cache |
 
 ### TV Shows Endpoints
 
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
 | `GET` | `/directories/tvshows` | List TV show directories (query: `series`, `season`) |
-| `POST` | `/directories/refresh` | Force refresh directory cache |
 | `POST` | `/rename/episodes` | Rename episodes (form: `directory`, `series`, `season`, `language`, `dry_run`, `assign_seq`, `threshold`) |
 
 ### Music Endpoints
@@ -754,9 +762,12 @@ id -g   # e.g. 1001
 
 ```yaml
 environment:
-  - PUID=1001
-  - PGID=1001
+  - PUID=1000
+  - PGID=2000
+  - UMASK=002
 ```
+
+For a shared-group NAS with setgid media directories, newly created entries produce group-writable `0664` files and `0775` directories when applications request the conventional `0666`/`0777` modes with `PGID=2000` and `UMASK=002`. The parent directory's setgid bit preserves group ownership. Umask does not override explicitly requested modes or change existing files and directories.
 
 ### Umlauts displayed incorrectly
 

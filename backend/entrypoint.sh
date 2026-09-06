@@ -3,6 +3,9 @@ set -e
 
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
+UMASK=${UMASK:-022}
+
+umask "$UMASK"
 
 # Adjust appuser UID/GID if needed
 if [ "$(id -u appuser)" != "$PUID" ] || [ "$(id -g appuser)" != "$PGID" ]; then

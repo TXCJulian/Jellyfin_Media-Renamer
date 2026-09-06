@@ -159,6 +159,23 @@ def test_get_cutter_dirs_multi_path(tmp_path):
     assert "Videos" in paths
 
 
+def test_get_download_dirs_includes_empty_directories_from_every_base(tmp_path):
+    media1 = tmp_path / "media1"
+    media2 = tmp_path / "media2"
+    (media1 / "Empty").mkdir(parents=True)
+    (media2 / "Documents").mkdir(parents=True)
+    (media2 / "Documents" / "readme.txt").write_text("not media")
+
+    _reload_config(BASE_PATHS=f"{media1},{media2}")
+
+    from app.get_dirs import get_download_dirs
+
+    assert get_download_dirs() == [
+        {"path": "Documents", "base": "media2"},
+        {"path": "Empty", "base": "media1"},
+    ]
+
+
 def test_missing_subfolder_skipped(tmp_path):
     """If a base path doesn't have the subfolder, it's just skipped."""
     media1 = tmp_path / "media1"

@@ -32,6 +32,7 @@ import {
   getBrowserCompatibilityReport,
 } from '@/lib/mediaCompatibility'
 import { useDebounce } from '@/hooks/useDebounce'
+import { useDirectoryAutoRefresh } from '@/hooks/useDirectoryAutoRefresh'
 import type {
   CutterForm,
   CutterFileInfo,
@@ -146,6 +147,7 @@ export default function CutterPanel({
 
   // Transient state - resets on navigation (that's fine)
   const [isLoadingDirs, setIsLoadingDirs] = useState(false)
+  const directoryRequest = useRef(0)
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [isCutting, setIsCutting] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(-1)
@@ -198,7 +200,8 @@ export default function CutterPanel({
 
   // ── Fetch directories with optional search filter ──────────
   const fetchDirs = useCallback(
-    async (searchText: string) => {
+    async (searchText: string, preserveSelection = false) => {
+      const requestId = ++directoryRequest.current
       setIsLoadingDirs(true)
       onError('')
       try {
@@ -206,7 +209,9 @@ export default function CutterPanel({
         if (searchText) params.search = searchText
         const data = await fetchJson<DirectoriesResponse>('/directories/media', params)
         const dirs = data.directories ?? []
+        if (requestId !== directoryRequest.current) return
         setPersisted((prev) => {
+          if (preserveSelection) return { directories: dirs }
           const stillPresent = dirs.some(
             (d) => d.path === prev.form.directory && d.base === prev.form.base,
           )
@@ -221,13 +226,17 @@ export default function CutterPanel({
           }
         })
       } catch (err) {
-        onError(`Error loading directories: ${err instanceof Error ? err.message : String(err)}`)
+        if (requestId === directoryRequest.current) {
+          onError(`Error loading directories: ${err instanceof Error ? err.message : String(err)}`)
+        }
       } finally {
-        setIsLoadingDirs(false)
+        if (requestId === directoryRequest.current) setIsLoadingDirs(false)
       }
     },
     [onError, setPersisted],
   )
+
+  useDirectoryAutoRefresh(() => fetchDirs(debouncedSearch, true))
 
   // Only fetch on mount if directories are empty (first visit)
   const initialFetchDone = useRef(directories.length > 0)
