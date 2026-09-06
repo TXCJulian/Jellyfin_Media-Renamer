@@ -9,6 +9,7 @@ matters far more here than for a download that can simply be re-fetched.
 """
 
 import json
+import math
 import os
 import sqlite3
 import threading
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     rule_id              TEXT,
     stage                TEXT NOT NULL,
     progress             REAL NOT NULL DEFAULT 0.0,
+    eta_seconds          INTEGER,
     remote_job_id        TEXT,
     output_path          TEXT,
     error                TEXT,
@@ -121,6 +123,7 @@ class Job:
     source_path: str
     stage: str
     progress: float = 0.0
+    eta_seconds: int | None = None
     preset_name: str | None = None
     rule_id: str | None = None
     remote_job_id: str | None = None
@@ -155,6 +158,13 @@ class EncoderStore:
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            columns = {row[1] for row in self._conn.execute("PRAGMA table_info(jobs)")}
+            if "eta_seconds" not in columns:
+                self._conn.execute("ALTER TABLE jobs ADD COLUMN eta_seconds INTEGER")
+            # Estimates are live telemetry; restart must not resurrect stale ones.
+            self._conn.execute(
+                "UPDATE jobs SET eta_seconds = NULL WHERE eta_seconds IS NOT NULL"
+            )
             self._conn.commit()
 
     def close(self) -> None:
@@ -235,10 +245,25 @@ class EncoderStore:
     ) -> None:
         if stage not in STAGES:
             raise ValueError(f"Unknown stage: {stage}")
-        self._update(job_id, stage=stage, error=error, error_code=error_code)
+        self._update(
+            job_id, stage=stage, error=error, error_code=error_code, eta_seconds=None
+        )
 
-    def set_progress(self, job_id: str, pct: float) -> None:
-        self._update(job_id, progress=float(pct))
+    def set_progress(
+        self, job_id: str, pct: float, eta_seconds: int | None = None
+    ) -> None:
+        if (
+            isinstance(eta_seconds, bool)
+            or not isinstance(eta_seconds, (int, float))
+            or not math.isfinite(eta_seconds)
+            or eta_seconds < 0
+        ):
+            eta_seconds = None
+        self._update(
+            job_id,
+            progress=float(pct),
+            eta_seconds=int(eta_seconds) if eta_seconds is not None else None,
+        )
 
     def cancel_blocked_for_reprocess(self, job_id: str) -> bool:
         """Release a recoverable blocked row while retaining it as history."""
@@ -640,6 +665,7 @@ def _to_job(row: sqlite3.Row) -> Job:
         source_path=row["source_path"],
         stage=row["stage"],
         progress=row["progress"],
+        eta_seconds=row["eta_seconds"],
         preset_name=row["preset_name"],
         rule_id=row["rule_id"],
         remote_job_id=row["remote_job_id"],

@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS items (
     path        TEXT,
     size        INTEGER,
     progress    REAL NOT NULL DEFAULT 0.0,
+    progress_known INTEGER NOT NULL DEFAULT 1,
     stage       TEXT NOT NULL DEFAULT 'queued',
     error       TEXT,
     PRIMARY KEY (job_id, idx)
@@ -41,7 +42,7 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC);
 """
 
-_ITEM_FIELDS = ("title", "path", "size", "progress", "stage", "error")
+_ITEM_FIELDS = ("title", "path", "size", "progress", "progress_known", "stage", "error")
 
 # Values of `auto_start` that mean "do not start this job yet".
 _AUTO_START_DISABLED = frozenset({"false", "0", "no"})
@@ -66,6 +67,7 @@ class Item:
     path: str | None = None
     size: int | None = None
     progress: float = 0.0
+    progress_known: bool = True
     stage: str = "queued"
     error: str | None = None
 
@@ -110,6 +112,13 @@ class JobStore:
         `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so a new
         column has to be added explicitly.
         """
+        item_columns = {
+            row["name"] for row in self._conn.execute("PRAGMA table_info(items)")
+        }
+        if "progress_known" not in item_columns:
+            self._conn.execute(
+                "ALTER TABLE items ADD COLUMN progress_known INTEGER NOT NULL DEFAULT 1"
+            )
         columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(jobs)")}
         if "enqueued" not in columns:
             self._conn.execute(
@@ -229,6 +238,8 @@ class JobStore:
             self._on_change(job)
 
     def upsert_item(self, job_id: str, index: int, **fields: Any) -> None:
+        if "progress" in fields:
+            fields.setdefault("progress_known", True)
         unknown = set(fields) - set(_ITEM_FIELDS)
         if unknown:
             raise ValueError(f"Unknown item fields: {sorted(unknown)}")
@@ -382,6 +393,7 @@ def _to_job(row: sqlite3.Row, item_rows: list[sqlite3.Row]) -> Job:
                 path=item["path"],
                 size=item["size"],
                 progress=item["progress"],
+                progress_known=bool(item["progress_known"]),
                 stage=item["stage"],
                 error=item["error"],
             )

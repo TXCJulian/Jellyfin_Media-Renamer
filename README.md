@@ -133,12 +133,19 @@ More companion services following this pattern may be added as GPU-heavy feature
 - Advanced options: playlist item limit, filename prefix/override
 - "Start now" or "hold in queue" per submission — held jobs can be started later from the job card
 - Playlist URLs report progress per item, not just per job
+- Native HLS downloads, including AES-128 streams, report progress and support cancellation during transfer. Fragment counts provide a fallback when byte totals are unavailable; streams with no measurable percentage show an indeterminate progress bar.
 - Cookie authentication: upload a `cookies.txt` for sites that require a logged-in session (e.g. age-restricted or private content)
 - Live job cards via SSE with per-item progress, cancel, retry, and delete actions; a collapsible history section keeps finished/failed/cancelled jobs
 - Queued and in-progress jobs are persisted to SQLite and resume automatically after a backend restart
 - Concurrent download workers (`DOWNLOADER_WORKERS`, default 3) — additional jobs wait in the queue rather than being rejected
 
 ### Auto Encoder
+
+The active encoding job displays its estimated remaining time beside the percentage.
+It shows “Estimating…” until HandBrake supplies a usable estimate, including during
+earlier passes of a multi-pass encode. Waiting jobs have no time estimate. Estimates
+clear when encoding ends or live updates disconnect. Deploy updated builds of both
+the encoder and renamer to enable this field; older encoder builds remain compatible.
 
 - Watches configured folders for new video files and re-encodes them via a remote [HandBrake_Video-Encoder](https://github.com/TXCJulian/HandBrake_Video-Encoder) service
 - `review` mode queues each detected file for manual approval; `auto` mode encodes unattended

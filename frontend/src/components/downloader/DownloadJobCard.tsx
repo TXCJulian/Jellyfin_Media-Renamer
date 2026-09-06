@@ -85,9 +85,9 @@ export default function DownloadJobCard({ job, onCancel, onDelete, onStart, onRe
     job.stage === 'done' || isTerminal || stages.indexOf(job.stage) >= stages.indexOf(stage)
 
   const overall =
-    job.items.length > 0
+    job.items.length > 0 && job.items.every((item) => item.progress_known !== false)
       ? job.items.reduce((sum, item) => sum + item.progress, 0) / job.items.length
-      : 0
+      : null
 
   return (
     <div className="glass-light rounded-[14px] p-4">
@@ -161,14 +161,23 @@ export default function DownloadJobCard({ job, onCancel, onDelete, onStart, onRe
 
       {isActive && (
         <>
-          <div className="h-1.5 overflow-hidden rounded-full bg-white/6">
+          <div
+            role="progressbar"
+            aria-label="Download progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={overall === null ? undefined : Math.max(0, Math.min(overall, 100))}
+            className="h-1.5 overflow-hidden rounded-full bg-white/6"
+          >
             <div
-              className="h-full rounded-full bg-[var(--accent-6)] transition-all duration-300"
-              style={{ width: `${Math.max(0, Math.min(overall, 100))}%` }}
+              className={`h-full rounded-full bg-[var(--accent-6)] transition-all duration-300 ${overall === null ? 'motion-safe:animate-pulse' : ''}`}
+              style={{
+                width: overall === null ? '100%' : `${Math.max(0, Math.min(overall, 100))}%`,
+              }}
             />
           </div>
           <p className="mt-1.5 text-[0.72rem] tabular-nums text-[var(--text-secondary)]">
-            {overall.toFixed(1)}%
+            {overall === null ? 'Progress unavailable' : `${overall.toFixed(1)}%`}
           </p>
         </>
       )}
@@ -182,7 +191,11 @@ export default function DownloadJobCard({ job, onCancel, onDelete, onStart, onRe
                   {item.title}
                 </span>
                 <span className="tabular-nums text-[var(--text-tertiary)]">
-                  {item.stage === 'done' ? formatSize(item.size) : `${item.progress.toFixed(0)}%`}
+                  {item.stage === 'done'
+                    ? formatSize(item.size)
+                    : item.progress_known === false
+                      ? 'Progress unavailable'
+                      : `${item.progress.toFixed(0)}%`}
                 </span>
                 {item.stage === 'done' && (
                   <a

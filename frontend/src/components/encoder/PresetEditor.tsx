@@ -586,7 +586,9 @@ export default function PresetEditor({
                 />
               </label>
               <div>
-                <span className="block text-[0.78rem] text-[var(--text-secondary)] mb-1">Video encoder</span>
+                <span className="block text-[0.78rem] text-[var(--text-secondary)] mb-1">
+                  Video encoder
+                </span>
                 <EncoderSelect
                   aria-label="Video encoder"
                   value={form.encoder}
@@ -600,7 +602,9 @@ export default function PresetEditor({
                 />
               </div>
               <div>
-                <span className="block text-[0.78rem] text-[var(--text-secondary)] mb-1">Speed preset</span>
+                <span className="block text-[0.78rem] text-[var(--text-secondary)] mb-1">
+                  Speed preset
+                </span>
                 <EncoderSelect
                   aria-label="Speed preset"
                   value={form.videoPreset}
@@ -609,7 +613,9 @@ export default function PresetEditor({
                 />
               </div>
               <div>
-                <span className="block text-[0.78rem] text-[var(--text-secondary)] mb-1">File format</span>
+                <span className="block text-[0.78rem] text-[var(--text-secondary)] mb-1">
+                  File format
+                </span>
                 <EncoderSelect
                   aria-label="File format"
                   value={form.fileFormat}
@@ -618,7 +624,9 @@ export default function PresetEditor({
                 />
               </div>
               <div>
-                <span className="block text-[0.78rem] text-[var(--text-secondary)] mb-1">Quality type</span>
+                <span className="block text-[0.78rem] text-[var(--text-secondary)] mb-1">
+                  Quality type
+                </span>
                 <EncoderSelect
                   aria-label="Quality type"
                   value={form.qualityType}
@@ -627,7 +635,9 @@ export default function PresetEditor({
                 />
               </div>
               <div>
-                <span className="block text-[0.78rem] text-[var(--text-secondary)] mb-1">Quality</span>
+                <span className="block text-[0.78rem] text-[var(--text-secondary)] mb-1">
+                  Quality
+                </span>
                 <EncoderSelect
                   aria-label="Quality"
                   value={form.quality}

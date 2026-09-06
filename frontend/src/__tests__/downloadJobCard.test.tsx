@@ -30,6 +30,37 @@ function baseJob(overrides: Partial<DownloadJob> = {}): DownloadJob {
 const noop = vi.fn()
 
 describe('DownloadJobCard stage strip', () => {
+  it('shows indeterminate progress before the first download event', () => {
+    render(
+      <DownloadJobCard
+        job={baseJob({ items: [] })}
+        onCancel={noop}
+        onDelete={noop}
+        onStart={noop}
+        onRetry={noop}
+      />,
+    )
+    expect(screen.queryByText('0.0%')).toBeNull()
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBeNull()
+    expect(screen.getByText(/Progress unavailable/)).toBeTruthy()
+  })
+
+  it('does not average unknown progress as zero', () => {
+    const download = baseJob()
+    download.items[0]!.progress_known = false
+    render(
+      <DownloadJobCard
+        job={download}
+        onCancel={noop}
+        onDelete={noop}
+        onStart={noop}
+        onRetry={noop}
+      />,
+    )
+    expect(screen.queryByText('40.0%')).toBeNull()
+    expect(screen.getByText(/Progress unavailable/)).toBeTruthy()
+  })
+
   it('omits the Transcoding stage when the job has no re-encode', () => {
     render(
       <DownloadJobCard

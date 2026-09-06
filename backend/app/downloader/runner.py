@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import re
 import threading
@@ -374,6 +375,23 @@ def _drop_vanished_items(store: JobStore, job_id: str) -> None:
         )
 
 
+def _download_progress(data: dict[str, Any]) -> float | None:
+    def number(key: str) -> float | None:
+        value = data.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return float(value) if math.isfinite(value) and value >= 0 else None
+
+    total = number("total_bytes") or number("total_bytes_estimate")
+    downloaded = number("downloaded_bytes")
+    if total and downloaded is not None:
+        return min(downloaded / total * 100, 100.0)
+    count, index = number("fragment_count"), number("fragment_index")
+    if count and index is not None:
+        return min(index / count * 100, 100.0)
+    return None
+
+
 def _make_hook(
     store: JobStore,
     job_id: str,
@@ -401,9 +419,7 @@ def _make_hook(
                 # always supplies `filename` on progress events, so this is
                 # not a path production ever takes; drop the event.
                 return
-            downloaded = data.get("downloaded_bytes") or 0
-            total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
-            progress = min((downloaded / total * 100.0) if total else 0.0, 100.0)
+            progress = _download_progress(data)
             downloaded_paths.add(os.path.realpath(str(filename)))
             downloaded_outputs.add(_output_key(str(filename)))
             index = allocator.for_path(str(filename))
@@ -411,7 +427,8 @@ def _make_hook(
                 job_id,
                 index,
                 title=_display_name(filename),
-                progress=progress,
+                progress=progress if progress is not None else 0.0,
+                progress_known=progress is not None,
                 stage="downloading",
             )
         elif status == "finished":

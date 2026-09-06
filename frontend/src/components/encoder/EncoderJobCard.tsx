@@ -30,6 +30,17 @@ interface Props {
   onDelete: (jobId: string) => void
   onReprocess?: (jobId: string) => void
   reprocessing?: boolean
+  connected?: boolean
+}
+
+function remainingTime(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return 'Estimating…'
+  if (seconds < 60) return 'Less than a minute remaining'
+  const minutes = Math.ceil(seconds / 60)
+  if (minutes < 60) return `About ${minutes} min remaining`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return `About ${hours} h${rest ? ` ${rest} min` : ''} remaining`
 }
 
 function basename(path: string): string {
@@ -61,6 +72,7 @@ export default function EncoderJobCard({
   onDelete,
   onReprocess,
   reprocessing = false,
+  connected = true,
 }: Props) {
   const [showFacts, setShowFacts] = useState(false)
   const factsId = useId()
@@ -72,9 +84,7 @@ export default function EncoderJobCard({
   const canDelete = job.stage !== 'swapping'
   const canReprocess =
     (job.stage === 'failed' ||
-      (job.stage === 'blocked' &&
-        job.error_code !== 'swap_interrupted' &&
-        !job.remote_job_id)) &&
+      (job.stage === 'blocked' && job.error_code !== 'swap_interrupted' && !job.remote_job_id)) &&
     onReprocess
   const hasFacts = Object.keys(job.facts).length > 0
   const factLabels = Object.entries(job.facts)
@@ -199,6 +209,9 @@ export default function EncoderJobCard({
           </div>
           <p className="mt-1.5 text-[0.72rem] tabular-nums text-[var(--text-secondary)]">
             {job.progress.toFixed(1)}%
+            {job.stage === 'encoding' && connected && (
+              <span> · {remainingTime(job.eta_seconds)}</span>
+            )}
           </p>
         </div>
       )}

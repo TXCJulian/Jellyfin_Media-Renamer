@@ -68,6 +68,33 @@ def _queue(store, client, mode="auto", ttl=0, holding="/tmp/hold"):
                        original_ttl=ttl, holding_dir=holding, poll_interval=0.01)
 
 
+def test_poll_publishes_eta_and_clears_it_on_disconnect_and_old_server(env):
+    store, client, movies, source, _ = env
+    q = _queue(store, client)
+    job = store.create_job(str(source))
+    store.set_stage(job.id, "encoding")
+    received = q.events.subscribe()
+    responses = iter([
+        {"status": "running", "progress": 25, "eta_seconds": 120},
+        EncoderUnreachable("offline"),
+        {"status": "running", "progress": 30, "eta_seconds": 90},
+        {"status": "running", "progress": 35},
+        {"status": "completed", "progress": 100},
+    ])
+
+    def poll(_id):
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    client.poll = poll
+    q._await_remote(job.id, "remote-1")
+    payloads = [received.get_nowait() for _ in range(received.qsize())]
+    assert [payload["eta_seconds"] for payload in payloads] == [120, None, 90, None, None]
+    assert [payload["progress"] for payload in payloads] == [25, 25, 30, 35, 100]
+
+
 def test_plan_records_the_matched_rule_and_preset(env):
     store, client, movies, source, _ = env
     q = _queue(store, client, mode="review")
@@ -798,4 +825,3 @@ def test_cancel_racing_remote_rejected_response_retains_cancelled(env):
     q._handle_dispatch_error(job.id, exc)
 
     assert store.get_job(job.id).stage == "cancelled"
-
