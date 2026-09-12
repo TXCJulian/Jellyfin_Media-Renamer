@@ -202,6 +202,7 @@ export interface DownloadItem {
   path: string | null
   size: number | null
   progress: number
+  progress_known?: boolean
   stage: DownloadStage
   error: string | null
 }
@@ -327,6 +328,7 @@ export interface EncoderJob {
   source_path: string
   stage: EncoderJobStage
   progress: number
+  eta_seconds?: number | null
   preset_name: string | null
   rule_id: string | null
   error: string | null

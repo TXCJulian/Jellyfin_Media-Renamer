@@ -65,6 +65,7 @@ def job_to_payload(job: Job) -> dict[str, Any]:
         "source_path": job.source_path,
         "stage": job.stage,
         "progress": round(job.progress, 1),
+        "eta_seconds": job.eta_seconds if job.stage == "encoding" else None,
         "preset_name": job.preset_name,
         "rule_id": job.rule_id,
         "error": job.error,

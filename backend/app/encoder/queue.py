@@ -194,11 +194,7 @@ class EncodeQueue:
     def cancel(self, job_id: str) -> bool:
         with self._job_lock(job_id):
             job = self._store.get_job(job_id)
-            if (
-                job is None
-                or job.stage == "swapping"
-                or job.stage in TERMINAL_STAGES
-            ):
+            if job is None or job.stage == "swapping" or job.stage in TERMINAL_STAGES:
                 return False
             if job.remote_job_id:
                 try:
@@ -679,6 +675,11 @@ class EncodeQueue:
             try:
                 body = self._client.poll(remote_id)
             except EncoderUnreachable:
+                with self._job_lock(job_id):
+                    current = self._store.get_job(job_id)
+                    if current is not None and current.stage == "encoding":
+                        self._store.set_progress(job_id, current.progress)
+                        self._publish(job_id)
                 # Transient: the encode is still running on the other side --
                 # but only up to a point. There is exactly one worker, so an
                 # encoder container that never comes back would otherwise
@@ -718,7 +719,15 @@ class EncodeQueue:
                 with self._job_lock(job_id):
                     current = self._store.get_job(job_id)
                     if current is not None and current.stage != "cancelled":
-                        self._store.set_progress(job_id, float(progress))
+                        self._store.set_progress(
+                            job_id,
+                            float(progress),
+                            eta_seconds=(
+                                body.get("eta_seconds")
+                                if body.get("status") == "running"
+                                else None
+                            ),
+                        )
                         self._publish(job_id)
 
             status = body.get("status")

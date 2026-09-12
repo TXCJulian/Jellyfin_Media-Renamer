@@ -35,6 +35,38 @@ function job(overrides: Partial<EncoderJob> = {}): EncoderJob {
 }
 
 describe('EncoderJobCard', () => {
+  it('updates remaining time and clears it when encoding ends', () => {
+    const { rerender } = render(
+      <EncoderJobCard job={job({ eta_seconds: 720 })} onApprove={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(screen.getByText(/About 12 min remaining/)).toBeTruthy()
+    rerender(
+      <EncoderJobCard job={job({ eta_seconds: null })} onApprove={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(screen.getByText(/Estimating/)).toBeTruthy()
+    expect(screen.queryByText(/remaining/)).toBeNull()
+    rerender(
+      <EncoderJobCard
+        job={job({ stage: 'swapping', eta_seconds: 720 })}
+        onApprove={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(/remaining|Estimating/)).toBeNull()
+  })
+
+  it('hides the estimate when live updates disconnect', () => {
+    render(
+      <EncoderJobCard
+        job={job({ eta_seconds: 720 })}
+        connected={false}
+        onApprove={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(/remaining/)).toBeNull()
+  })
+
   it('renders completed savings and expandable media facts', async () => {
     render(
       <EncoderJobCard

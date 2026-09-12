@@ -339,6 +339,7 @@ export default function EncoderPanel({ onBack }: EncoderPanelProps) {
             {activeJobs.length > 0 ? (
               activeJobs.map((job) => (
                 <EncoderJobCard
+                  connected={connected}
                   key={job.job_id}
                   job={job}
                   onApprove={(id) => void approve(id)}

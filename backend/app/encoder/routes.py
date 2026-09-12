@@ -993,7 +993,9 @@ def delete_job(job_id: str):
                 "This job is publishing its result and cannot be deleted yet",
             )
         if current.stage not in TERMINAL_STAGES:
-            return _error(409, "job_not_cancellable", "The job changed state; try again")
+            return _error(
+                409, "job_not_cancellable", "The job changed state; try again"
+            )
     if store.delete_job(job_id):
         get_events().publish({"type": "deleted", "job_id": job_id})
 

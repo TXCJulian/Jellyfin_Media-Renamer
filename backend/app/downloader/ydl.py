@@ -131,6 +131,9 @@ def build_ydl_opts(
     opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
+        # FFmpeg's HLS downloader emits only a finished hook. Native HLS
+        # supplies progress during VOD downloads and can fall back if needed.
+        "hls_prefer_native": True,
         "overwrites": False,
         "outtmpl": os.path.join(output_root, f"{stem}.%(ext)s"),
         "progress_hooks": [],
